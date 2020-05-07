@@ -7,7 +7,6 @@ import {
 
 import vtkLabelRepresentation from 'vtk.js/Sources/Interaction/Widgets/LabelRepresentation';
 
-import { SlicingMode } from 'vtk.js/Sources/Rendering/Core/ImageMapper/Constants';
 import { vec3 } from 'gl-matrix';
 
 const { vtkErrorMacro } = macro;
@@ -93,18 +92,6 @@ export default function widgetBehavior(publicAPI, model) {
     model.visibleOnFocus = visibleOnFocus;
   };
 
-  publicAPI.setXAxis = (xAxis) => {
-    vec3.normalize(model.xAxis, xAxis);
-  };
-
-  publicAPI.setYAxis = (yAxis) => {
-    vec3.normalize(model.yAxis, yAxis);
-  };
-
-  publicAPI.setZAxis = (zAxis) => {
-    vec3.normalize(model.zAxis, zAxis);
-  };
-
   publicAPI.setLabelTextCallback = (callback) => {
     model.labelTextCallback = callback;
   };
@@ -155,7 +142,6 @@ export default function widgetBehavior(publicAPI, model) {
   publicAPI.placePoint2 = (point2) => {
     if (model.hasFocus) {
       model.point2 = point2;
-
       model.point2Handle.setOrigin(model.point2);
 
       publicAPI.updateShapeBounds();
@@ -218,61 +204,27 @@ export default function widgetBehavior(publicAPI, model) {
     const d = [0, 0, 0];
     vec3.subtract(d, point2, point1);
 
-    let sx = vec3.dot(d, model.xAxis);
-    let sy = vec3.dot(d, model.yAxis);
-    let sz = vec3.dot(d, model.zAxis);
+    const horizontal = model.shapeHandle.getRight();
+    const vertical = model.shapeHandle.getUp();
+    let sh = vec3.dot(d, horizontal);
+    let sv = vec3.dot(d, vertical);
+    const absSh = Math.abs(sh);
+    const absSv = Math.abs(sv);
 
-    const absSx = Math.abs(sx);
-    const absSy = Math.abs(sy);
-    const absSz = Math.abs(sz);
-
-    const slicingMode = model.shapeHandle.getDirection().indexOf(1);
-
-    if (slicingMode === SlicingMode.I) {
-      if (absSy < EPSILON) {
-        sy = sz;
-      } else if (absSz < EPSILON) {
-        sz = sy;
-      } else if (absSy > absSz) {
-        sz = (sz / absSz) * absSy;
-      } else {
-        sy = (sy / absSy) * absSz;
-      }
-    } else if (slicingMode === SlicingMode.J) {
-      if (absSx < EPSILON) {
-        sx = sz;
-      } else if (absSz < EPSILON) {
-        sz = sx;
-      } else if (absSx > absSz) {
-        sz = (sz / absSz) * absSx;
-      } else {
-        sx = (sx / absSx) * absSz;
-      }
-    } else if (slicingMode === SlicingMode.K) {
-      if (absSx < EPSILON) {
-        sx = sy;
-      } else if (absSy < EPSILON) {
-        sy = sx;
-      } else if (absSx > absSy) {
-        sy = (sy / absSy) * absSx;
-      } else {
-        sx = (sx / absSx) * absSy;
-      }
+    if (absSh < EPSILON) {
+      sh = sv;
+    } else if (absSv < EPSILON) {
+      sv = sh;
+    } else if (absSh > absSv) {
+      sv = (sv / absSv) * absSh;
+    } else {
+      sh = (sh / absSh) * absSv;
     }
 
     return [
-      point1[0] +
-        sx * model.xAxis[0] +
-        sy * model.yAxis[0] +
-        sz * model.zAxis[0],
-      point1[1] +
-        sx * model.xAxis[1] +
-        sy * model.yAxis[1] +
-        sz * model.zAxis[1],
-      point1[2] +
-        sx * model.xAxis[2] +
-        sy * model.yAxis[2] +
-        sz * model.zAxis[2],
+      point1[0] + sh * horizontal[0] + sv * vertical[0],
+      point1[1] + sh * horizontal[1] + sv * vertical[1],
+      point1[2] + sh * horizontal[2] + sv * vertical[2],
     ];
   };
 
@@ -401,55 +353,54 @@ export default function widgetBehavior(publicAPI, model) {
   // --------------------------------------------------------------------------
 
   publicAPI.handleMouseMove = (callData) => {
-    if (model.manipulator) {
-      const direction = model.camera.getDirectionOfProjection();
-      model.shapeHandle.setDirection(direction);
-      model.manipulator.setNormal(direction);
-
-      if (model.activeState) {
-        model.manipulator.setOrigin(model.activeState.getOrigin());
-      }
-
-      const worldCoords = model.manipulator.handleEvent(
-        callData,
-        model.openGLRenderWindow
-      );
-
-      if (model.hasFocus && model.pickable) {
-        if (worldCoords.length) {
-          if (!model.point1) {
-            model.point1Handle.setOrigin(worldCoords);
-          } else {
-            model.point2Handle.setOrigin(worldCoords);
-          }
-        }
-
-        if (model.point1) {
-          model.point2 = worldCoords;
-          publicAPI.updateShapeBounds();
-        }
-
-        return macro.EVENT_ABORT;
-      }
-
-      if (model.useHandles && model.isDragging) {
-        if (model.activeState === model.point1Handle) {
-          model.point1Handle.setOrigin(worldCoords);
-          model.point1 = worldCoords;
-        } else {
-          model.point2Handle.setOrigin(worldCoords);
-
-          model.point2 = worldCoords;
-        }
-        publicAPI.updateShapeBounds();
-
-        publicAPI.invokeInteractionEvent();
-
-        return macro.EVENT_ABORT;
-      }
+    if (
+      !model.activeState ||
+      !model.activeState.getActive() ||
+      !model.pickable ||
+      !model.manipulator
+    ) {
+      return macro.VOID;
     }
 
-    return macro.VOID;
+    const normal = model.camera.getDirectionOfProjection();
+    const vertical = model.camera.getViewUp();
+    const horizontal = [0, 0, 0];
+    vec3.cross(horizontal, vertical, normal);
+    model.shapeHandle.setUp(vertical);
+    model.shapeHandle.setRight(horizontal);
+    model.shapeHandle.setDirection(normal);
+    model.manipulator.setNormal(normal);
+    model.manipulator.setOrigin(model.activeState.getOrigin());
+
+    const worldCoords = model.manipulator.handleEvent(
+      callData,
+      model.openGLRenderWindow
+    );
+    if (!worldCoords.length) {
+      return macro.VOID;
+    }
+
+    if (model.hasFocus) {
+      if (!model.point1) {
+        model.point1Handle.setOrigin(worldCoords);
+      } else {
+        model.point2Handle.setOrigin(worldCoords);
+        model.point2 = worldCoords;
+        publicAPI.updateShapeBounds();
+      }
+    } else if (model.useHandles && model.isDragging) {
+      if (model.activeState === model.point1Handle) {
+        model.point1Handle.setOrigin(worldCoords);
+        model.point1 = worldCoords;
+      } else {
+        model.point2Handle.setOrigin(worldCoords);
+        model.point2 = worldCoords;
+      }
+      publicAPI.updateShapeBounds();
+      publicAPI.invokeInteractionEvent();
+    }
+
+    return model.hasFocus ? macro.EVENT_ABORT : macro.VOID;
   };
 
   // --------------------------------------------------------------------------
@@ -526,13 +477,7 @@ export default function widgetBehavior(publicAPI, model) {
 
       if (publicAPI.isDraggingEnabled()) {
         const distance = vec3.squaredDistance(model.point1, model.point2);
-        const maxDistance =
-          100 *
-          Math.max(
-            vec3.squaredLength(model.xAxis),
-            vec3.squaredLength(model.yAxis),
-            vec3.squaredLength(model.zAxis)
-          );
+        const maxDistance = 100;
 
         if (distance > maxDistance || publicAPI.isDraggingForced()) {
           publicAPI.invokeInteractionEvent();
