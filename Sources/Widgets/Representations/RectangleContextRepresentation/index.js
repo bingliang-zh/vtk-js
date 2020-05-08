@@ -63,9 +63,8 @@ function vtkRectangleContextRepresentation(publicAPI, model) {
       const vertical = state.getUp();
       const horizontal = state.getRight();
       vec3.cross(horizontal, vertical, normal);
-      const bounds = state.getBounds();
-      const point1 = [bounds[0], bounds[2], bounds[4]]; // so wrong, can't guess points from bounds
-      const point2 = [bounds[1], bounds[3], bounds[5]]; // so wrong, can't guess points from bounds
+      const point1 = state.getOrigin();
+      const point2 = state.getCorner();
       const dir = [0, 0, 0];
       vec3.subtract(dir, point2, point1);
       const sh = vec3.dot(dir, horizontal);
